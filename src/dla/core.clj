@@ -20,34 +20,29 @@
         disc (- (* r2 dr2) D2) ; discriminant
         sqrt-disc (Math/sqrt disc)
         ]
-    (println dx dy dr2 r2 D2 disc sqrt-disc)
     (when (< 0 disc) ; there is an intersection
       (if (= 0 disc) ; it's a tangent i.e. a single intersection point
-        [(c/->Point (/ (+ (* D dy)) dr2)
-                   (/ (+ (* (- D) dx) dr2)))]
-        [(c/->Point (/ (+ (* D dy)     (* (sgn dy) dx sqrt-disc)) dr2)
-                    (/ (+ (* (- D) dx) (* (Math/abs dy) sqrt-disc) dr2)))
-         (c/->Point (/ (- (* D dy)     (* (sgn dy) dx sqrt-disc)) dr2)
-                    (/ (- (* (- D) dx) (* (Math/abs dy) sqrt-disc) dr2)))]))))
+        [(.add (:c c) (c/->Point (/ (* D dy) dr2)
+                                 (/ (* (- D) dx) dr2)))]
+        [(.add (:c c) (c/->Point (/ (+ (* D dy)     (* (sgn dy) dx sqrt-disc)) dr2)
+                                 (/ (+ (* (- D) dx) (* (Math/abs dy) sqrt-disc)) dr2)))
+         (.add (:c c) (c/->Point (/ (- (* D dy)     (* (sgn dy) dx sqrt-disc)) dr2)
+                                 (/ (- (* (- D) dx) (* (Math/abs dy) sqrt-disc)) dr2)))]))))
 
+(defn center []
+  (c/mk-circle 0 0 10))
 
-;(defn circle-intersects? [c1 c2 p1 p2]
-; "Projects c1 along p1->p2 and returns true if it intersects c2")
-;
-;
-;(defn center []
-;  (c/mk-circle 0 0 10))
-;(defn shoot [r circles]
-;  (let [a (q/random (* 2 Math/PI))
-;        x (Math/cos a)
-;        y (Math/sin a)
-;        p1 (c/->Point x y)
-;        hit-circle (-> circles
-;                       (filter #(intersects? % p1 (c/->Point 0 0))
-;                       (min-key #(x/dist p1 (:c %))))]
-;    (when hit-circle
-;      (let [p (k
-;      (c/mk-circle k
+(defn shoot [r circles]
+  (let [a (q/random (* 2 Math/PI))
+        x (* 1000. (Math/cos a))
+        y (* 1000. (Math/sin a))
+        p (c/->Point x y)
+        hit (->> circles
+                (mapcat #(intersections (assoc % :r (+ r (:r %))) p (c/->Point 0 0)))
+                (apply min-key #(.mag (.sub p %))))]
+    (if hit
+      (conj circles (c/mk-circle (.x hit) (.y hit) r))
+      circles)))
 
 (defn setup []
   ; Set frame rate to 30 frames per second.
@@ -56,28 +51,30 @@
   (q/color-mode :hsb)
   ; setup function returns initial state. It contains
   ; circle color and position.
-  {:color 0
-   :angle 0})
+  [(center)]
+  )
 
 (defn update-state [state]
   ; Update sketch state by changing circle color and position.
-  {:color (mod (+ (:color state) 0.7) 255)
-   :angle (+ (:angle state) 0.1)})
+;  (doseq [c state] (println (.x (:c c)) (.y (:c c))))
+;  (println '------------------------------------------)
+  (->> state
+      (iterate (partial shoot (q/random 5.)))
+      (drop 10)
+      first))
+
 
 (defn draw-state [state]
   ; Clear the sketch by filling it with light-grey color.
   (q/background 240)
   ; Set circle color.
-  (q/fill (:color state) 255 255)
-  ; Calculate x and y coordinates of the circle.
-  (let [angle (:angle state)
-        x (* 150 (q/cos angle))
-        y (* 150 (q/sin angle))]
+  (q/fill 150 150 150)
+  (doseq [c state]
     ; Move origin point to the center of the sketch.
     (q/with-translation [(/ (q/width) 2)
                          (/ (q/height) 2)]
       ; Draw the circle.
-      (q/ellipse x y 100 100))))
+      (q/ellipse (.x (:c c)) (.y (:c c)) (* 2. (:r c)) (* 2. (:r c))))))
 
 
 (q/defsketch dla
