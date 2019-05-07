@@ -3,15 +3,51 @@
             [quil.middleware :as m]
             [constraints.core :as c]))
 
-(defn intersects? [c p1 p2]
-  (let [d (c/mag (c/.sub p2 p1))
-        D (- (* (.x p1) (.y p2)) (* (.x p2) (.y p1)))]
-    (< 0 (- (* (:r c) (:r c) d d) (* D D)))))
+(defn intersections [c p1 p2]
+  ;; http://mathworld.wolfram.com/Circle-LineIntersection.html
+  (let [pc1 (c/.sub p1 (:c c)) ; move reference frame to center of circle
+        pc2 (c/.sub p2 (:c c))
+        d (c/.sub pc2 pc1)
+        dr (c/mag d)
+        D (- (* (.x pc1) (.y pc2)) (* (.x pc2) (.y pc1)))
+        ; some convenience variables
+        dx (.x d)
+        dy (.y d)
+        dr2 (Math/pow dr 2)
+        r2 (Math/pow (:r c) 2)
+        D2 (Math/pow D 2)
+        sgn #(if (< % 0) -1 1)
+        disc (- (* r2 dr2) D2) ; discriminant
+        sqrt-disc (Math/sqrt disc)
+        ]
+    (println dx dy dr2 r2 D2 disc sqrt-disc)
+    (when (< 0 disc) ; there is an intersection
+      (if (= 0 disc) ; it's a tangent i.e. a single intersection point
+        [(c/->Point (/ (+ (* D dy)) dr2)
+                   (/ (+ (* (- D) dx) dr2)))]
+        [(c/->Point (/ (+ (* D dy)     (* (sgn dy) dx sqrt-disc)) dr2)
+                    (/ (+ (* (- D) dx) (* (Math/abs dy) sqrt-disc) dr2)))
+         (c/->Point (/ (- (* D dy)     (* (sgn dy) dx sqrt-disc)) dr2)
+                    (/ (- (* (- D) dx) (* (Math/abs dy) sqrt-disc) dr2)))]))))
 
-(defn center []
-  (c/mk-circle 0 0 10))
-(defn shoot [r circles]
-  (let [a (q/random (* 2 Math/PI))]))
+
+;(defn circle-intersects? [c1 c2 p1 p2]
+; "Projects c1 along p1->p2 and returns true if it intersects c2")
+;
+;
+;(defn center []
+;  (c/mk-circle 0 0 10))
+;(defn shoot [r circles]
+;  (let [a (q/random (* 2 Math/PI))
+;        x (Math/cos a)
+;        y (Math/sin a)
+;        p1 (c/->Point x y)
+;        hit-circle (-> circles
+;                       (filter #(intersects? % p1 (c/->Point 0 0))
+;                       (min-key #(x/dist p1 (:c %))))]
+;    (when hit-circle
+;      (let [p (k
+;      (c/mk-circle k
 
 (defn setup []
   ; Set frame rate to 30 frames per second.
