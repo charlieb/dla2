@@ -31,6 +31,22 @@
 
 (defn center []
   (c/mk-circle 0 0 10))
+(defn closest [p ps] (when ps (apply min-key #(.mag (.sub % p)) ps)))
+
+(defn tree [r circles]
+  (let [a (q/random (* 2 Math/PI))
+        x (* 1000. (Math/cos a))
+        y (* 1000. (Math/sin a))
+        p (c/->Point x y)
+        hit (->> circles
+                 (map-indexed (fn [idx circ] "Find the two intersections and give the closest one back with the index"
+                                [idx (closest p (intersections (assoc circ :r (+ r (:r circ))) p (c/->Point 0 0)))]))
+                 (filter #(not (nil? (second %))))
+                 (apply min-key #(.mag (.sub (second %) p))))]
+    (if hit
+      (conj circles 
+            (assoc (c/mk-circle (.x (second hit)) (.y (second hit)) r) :links (first hit)))
+      circles)))
 
 (defn shoot [r circles]
   (let [a (q/random (* 2 Math/PI))
@@ -56,12 +72,21 @@
 
 (defn update-state [state]
   ; Update sketch state by changing circle color and position.
-;  (doseq [c state] (println (.x (:c c)) (.y (:c c))))
-;  (println '------------------------------------------)
+  (doseq [c state] (println (.x (:c c)) (.y (:c c))))
+;  (println '>>>>>>>>>>>>>>>)
+;  (loop [cs state]
+;    (let [cs-next (tree 5. cs)]
+;      (println cs-next)
+;      (doseq [c cs-next] (println (.x (:c c)) (.y (:c c))))
+;      (println '------------------------------------------)
+;      (recur cs-next)))
+  (println '==========================================)
   (->> state
-      (iterate (partial shoot (q/random 5.)))
+      ;(iterate (partial shoot (q/random 5.)))
+      (iterate (partial tree (q/random 5.)))
       (drop 10)
-      first))
+      first
+      ))
 
 
 (defn draw-state [state]
