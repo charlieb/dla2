@@ -45,7 +45,7 @@
                  (apply min-key #(.mag (.sub (second %) p))))]
     (if hit
       (conj circles 
-            (assoc (c/mk-circle (.x (second hit)) (.y (second hit)) r) :links (first hit)))
+            (assoc (c/mk-circle (.x (second hit)) (.y (second hit)) r) :link (first hit)))
       circles)))
 
 (defn shoot [r circles]
@@ -72,7 +72,7 @@
 
 (defn update-state [state]
   ; Update sketch state by changing circle color and position.
-  (doseq [c state] (println (.x (:c c)) (.y (:c c))))
+;  (doseq [c state] (println (.x (:c c)) (.y (:c c))))
 ;  (println '>>>>>>>>>>>>>>>)
 ;  (loop [cs state]
 ;    (let [cs-next (tree 5. cs)]
@@ -80,10 +80,10 @@
 ;      (doseq [c cs-next] (println (.x (:c c)) (.y (:c c))))
 ;      (println '------------------------------------------)
 ;      (recur cs-next)))
-  (println '==========================================)
+;  (println '==========================================)
   (->> state
       ;(iterate (partial shoot (q/random 5.)))
-      (iterate (partial tree (q/random 5.)))
+      (iterate #(tree (q/random 10.) %))
       (drop 10)
       first
       ))
@@ -94,12 +94,18 @@
   (q/background 240)
   ; Set circle color.
   (q/fill 150 150 150)
+  (q/stroke 150 150 150)
   (doseq [c state]
-    ; Move origin point to the center of the sketch.
-    (q/with-translation [(/ (q/width) 2)
-                         (/ (q/height) 2)]
-      ; Draw the circle.
-      (q/ellipse (.x (:c c)) (.y (:c c)) (* 2. (:r c)) (* 2. (:r c))))))
+    (when (:link c)
+      ; Move origin point to the center of the sketch.
+      (q/with-translation [(/ (q/width) 2)
+                           (/ (q/height) 2)]
+        ; Draw the circle.
+        ;(q/ellipse (.x (:c c)) (.y (:c c)) (* 2. (:r c)) (* 2. (:r c)))
+        (q/line (.x (:c c)) (.y (:c c))
+                (.x (:c (state (:link c)))) (.y (:c (state (:link c)))))
+
+        ))))
 
 
 (q/defsketch dla
