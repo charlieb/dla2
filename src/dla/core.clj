@@ -1,7 +1,11 @@
 (ns dla.core
   (:require [quil.core :as q]
             [quil.middleware :as m]
-            [constraints.core :as c]))
+            [constraints.core :as c]
+            [kdtree :as kd]))
+
+(defn iterate-times [n f init]
+ (first (drop n (iterate f init))))
 
 (defn intersections [c p1 p2]
   ;; http://mathworld.wolfram.com/Circle-LineIntersection.html
@@ -83,6 +87,32 @@
          %)
        circles))
 
+;;;;;;;;;; KD-TREE Particle Approach ;;;;;;;;;;;;;;
+(defn to-v2 [p] [(.x p) (.y p)])
+(defn to-Point [[x y]] (c/->Point x y))
+(defn stick-particle [tree]
+  (loop [p [(q/random -200 200) (q/random -200 200)]]
+    (let [near (first (kd/nearest-neighbor tree p 1))]
+      ;(println p near)
+      (if (< (.dist-squared near) 25)
+        p
+        (recur 
+          (if (> (.dist-squared near) 1000)
+            [(q/random -200 200) (q/random -200 200)]
+            [(+ (p 0) (q/random -2 2)) (+ (p 1) (q/random -2 2))]))))))
+
+(defn aggregate [nparts]
+  (first 
+    (iterate-times nparts
+                   (fn [[ps tree]] 
+                     (let [p (stick-particle tree)]
+                       (println '--------- p '---------)
+                       [(conj ps p) (kd/insert tree p)]))
+                   [[[0 0]] (kd/build-tree [[0 0]])])))
+
+
+
+;;;;;;;;;; QUIL ;;;;;;;;;;;;;;
 (defn setup []
   ; Set frame rate to 30 frames per second.
   (q/frame-rate 30)
@@ -91,15 +121,14 @@
   ; setup function returns initial state. It contains
   ; circle color and position.
   
-  (->> [(center)]
-      ;(iterate (partial shoot (q/random 5.)))
-      (iterate #(tree (q/random 10.) %))
-      (drop 100)
-      first)
+  ;  (->> [(center)]
+  ;      ;(iterate (partial shoot (q/random 5.)))
+  ;      (iterate #(tree (q/random 10.) %))
+  ;      (drop 100)
+  ;      first)
+  (println 'setup)
+  (aggregate 10000)
   )
-
-(defn iterate-times [n f init]
- (first (drop n (iterate f init))))
 
 (defn update-state [state]
   ; Update sketch state by changing circle color and position.
@@ -112,17 +141,18 @@
 ;      (println '------------------------------------------)
 ;      (recur cs-next)))
   (println '==========================================)
-  (->> state
-      ;(iterate (partial shoot (q/random 5.)))
-;      (iterate #(tree (q/random 10.) %))
-;      (drop 10)
-;      first
-      (sink 1.)
-      (iterate-times 10 #(stick (vec (exclude %))))
-      ;(iterate-times 10 #(stick (vec %)))
-      vec
-      ;(#(do (doseq [c %] (println (.x (:c c)) (.y (:c c)))) %))
-      ))
+;  (->> state
+;      ;(iterate (partial shoot (q/random 5.)))
+;;      (iterate #(tree (q/random 10.) %))
+;;      (drop 10)
+;;      first
+;      (sink 1.)
+;      (iterate-times 10 #(stick (vec (exclude %))))
+;      ;(iterate-times 10 #(stick (vec %)))
+;      vec
+;      ;(#(do (doseq [c %] (println (.x (:c c)) (.y (:c c)))) %))
+;      )
+  state)
 
 
 (defn draw-state [state]
@@ -133,18 +163,20 @@
   (q/no-fill)
   (q/stroke 150 150 150)
   (doseq [c state]
-    (when (:link c)
+;    (when (:link c)
       ; Move origin point to the center of the sketch.
       (q/with-translation [(/ (q/width) 2)
-                           30
-                          ; (/ (q/height) 2)
+                          ; 30
+                           (/ (q/height) 2)
                            ]
         ; Draw the circle.
-        (q/ellipse (.x (:c c)) (.y (:c c)) (* 2. (:r c)) (* 2. (:r c)))
-        (q/line (.x (:c c)) (.y (:c c))
-                (.x (:c (state (:link c)))) (.y (:c (state (:link c)))))
+        ;(println (c 0) (c 1))
+        (q/ellipse (c 0) (c 1) 2 2)
+;        (q/ellipse (.x (:c c)) (.y (:c c)) (* 2. (:r c)) (* 2. (:r c)))
+;        (q/line (.x (:c c)) (.y (:c c))
+;                (.x (:c (state (:link c)))) (.y (:c (state (:link c)))))
 
-        ))))
+        )))
 
 
 (q/defsketch dla
