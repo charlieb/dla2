@@ -34,7 +34,8 @@
                                  (/ (- (* (- D) dx) (* (Math/abs dy) sqrt-disc)) dr2)))]))))
 
 (defn center []
-  (c/mk-circle 0 0 10))
+  (assoc (c/mk-circle 0 0 10)
+         :id 0))
 (defn closest [p ps] (when ps (apply min-key #(.mag (.sub % p)) ps)))
 
 (defn tree [r circles]
@@ -94,8 +95,8 @@
   (loop [p [(q/random -200 200) (q/random -200 200)]]
     (let [near (first (kd/nearest-neighbor tree p 1))]
       ;(println p near)
-      (if (< (.dist-squared near) 25)
-        p
+      (if (< (.dist-squared near) 100)
+        [p near]
         (recur 
           (if (> (.dist-squared near) 1000)
             [(q/random -200 200) (q/random -200 200)]
@@ -104,11 +105,16 @@
 (defn aggregate [nparts]
   (first 
     (iterate-times nparts
-                   (fn [[ps tree]] 
-                     (let [p (stick-particle tree)]
-                       (println '--------- p '---------)
-                       [(conj ps p) (kd/insert tree p)]))
-                   [[[0 0]] (kd/build-tree [[0 0]])])))
+                   (fn [[cs tree]] 
+                     (let [[p hit] (stick-particle tree)
+                           c (assoc (c/mk-circle (p 0) (p 1) 5) ; radius!
+                                    :id (+ 1 (:id (last cs)))
+                                    :link (:id (meta hit)))]
+                       [(conj cs c)
+                        (kd/insert tree (with-meta (to-v2 (:c c)) c))]))
+                   (let [c0 (center)]
+                     [[c0]
+                      (kd/build-tree [(with-meta (to-v2 (:c c0)) c0)])]))))
 
 
 
@@ -163,7 +169,7 @@
   (q/no-fill)
   (q/stroke 150 150 150)
   (doseq [c state]
-;    (when (:link c)
+    (when (:link c)
       ; Move origin point to the center of the sketch.
       (q/with-translation [(/ (q/width) 2)
                           ; 30
@@ -171,12 +177,12 @@
                            ]
         ; Draw the circle.
         ;(println (c 0) (c 1))
-        (q/ellipse (c 0) (c 1) 2 2)
-;        (q/ellipse (.x (:c c)) (.y (:c c)) (* 2. (:r c)) (* 2. (:r c)))
-;        (q/line (.x (:c c)) (.y (:c c))
-;                (.x (:c (state (:link c)))) (.y (:c (state (:link c)))))
+;        (q/ellipse (c 0) (c 1) 2 2)
+        (q/ellipse (.x (:c c)) (.y (:c c)) (* 2. (:r c)) (* 2. (:r c)))
+        (q/line (.x (:c c)) (.y (:c c))
+                (.x (:c (state (:link c)))) (.y (:c (state (:link c)))))
 
-        )))
+        ))))
 
 
 (q/defsketch dla
