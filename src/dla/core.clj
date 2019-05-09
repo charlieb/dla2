@@ -60,6 +60,29 @@
       (conj circles (c/mk-circle (.x hit) (.y hit) r))
       circles)))
 
+(defn sink [y circles]
+  (cons
+    (first circles) ; Don't move the origin circle
+    (map 
+      #(assoc % :c (.add (:c %) (c/->Point 0 y)))
+      (rest circles))))
+
+(defn exclude [circles]
+  (cons
+    (first circles)
+    (map 
+      (fn [c]
+        (reduce #(c/exclude %1 %2)
+                c
+                (filter #(not (= c %)) circles)))
+      (rest circles))))
+
+(defn stick [circles] "Circles must stay a fixed distance from their :link"
+  (map #(if (:link %) 
+          (c/fix-dist % (circles (:link %)))
+         %)
+       circles))
+
 (defn setup []
   ; Set frame rate to 30 frames per second.
   (q/frame-rate 30)
@@ -67,8 +90,16 @@
   (q/color-mode :hsb)
   ; setup function returns initial state. It contains
   ; circle color and position.
-  [(center)]
+  
+  (->> [(center)]
+      ;(iterate (partial shoot (q/random 5.)))
+      (iterate #(tree (q/random 10.) %))
+      (drop 100)
+      first)
   )
+
+(defn iterate-times [n f init]
+ (first (drop n (iterate f init))))
 
 (defn update-state [state]
   ; Update sketch state by changing circle color and position.
@@ -80,12 +111,17 @@
 ;      (doseq [c cs-next] (println (.x (:c c)) (.y (:c c))))
 ;      (println '------------------------------------------)
 ;      (recur cs-next)))
-;  (println '==========================================)
+  (println '==========================================)
   (->> state
       ;(iterate (partial shoot (q/random 5.)))
-      (iterate #(tree (q/random 10.) %))
-      (drop 10)
-      first
+;      (iterate #(tree (q/random 10.) %))
+;      (drop 10)
+;      first
+      (sink 1.)
+      (iterate-times 10 #(stick (vec (exclude %))))
+      ;(iterate-times 10 #(stick (vec %)))
+      vec
+      ;(#(do (doseq [c %] (println (.x (:c c)) (.y (:c c)))) %))
       ))
 
 
@@ -93,15 +129,18 @@
   ; Clear the sketch by filling it with light-grey color.
   (q/background 240)
   ; Set circle color.
-  (q/fill 150 150 150)
+  ;(q/fill 150 150 150)
+  (q/no-fill)
   (q/stroke 150 150 150)
   (doseq [c state]
     (when (:link c)
       ; Move origin point to the center of the sketch.
       (q/with-translation [(/ (q/width) 2)
-                           (/ (q/height) 2)]
+                           30
+                          ; (/ (q/height) 2)
+                           ]
         ; Draw the circle.
-        ;(q/ellipse (.x (:c c)) (.y (:c c)) (* 2. (:r c)) (* 2. (:r c)))
+        (q/ellipse (.x (:c c)) (.y (:c c)) (* 2. (:r c)) (* 2. (:r c)))
         (q/line (.x (:c c)) (.y (:c c))
                 (.x (:c (state (:link c)))) (.y (:c (state (:link c)))))
 
