@@ -92,15 +92,19 @@
 (defn to-v2 [p] [(.x p) (.y p)])
 (defn to-Point [[x y]] (c/->Point x y))
 (defn stick-particle [tree]
-  (loop [p [(q/random -200 200) (q/random -200 200)]]
-    (let [near (first (kd/nearest-neighbor tree p 1))]
-      ;(println p near)
-      (if (< (.dist-squared near) 100)
-        [p near]
-        (recur 
-          (if (> (.dist-squared near) 1000)
-            [(q/random -200 200) (q/random -200 200)]
-            [(+ (p 0) (q/random -2 2)) (+ (p 1) (q/random -2 2))]))))))
+  (let [sz 300 w 300 -w -300 h 300 -h 0] 
+    (loop [p [(q/random -w w) (q/random -h h)]]
+      (let [near (kd/nearest-neighbor tree p 2)]
+        (if (and (= 2 (count near))
+                 (< (:dist-squared (first near)) 100)
+                 (< (:dist-squared (second near)) 100))
+          (recur [(q/random -w w) (q/random -h h)])
+          (if (< (:dist-squared (first near)) 100)
+            [p (first near)]
+            (recur 
+              (if (> (:dist-squared (first near)) 1000)
+                [(q/random -w w) (q/random -h h)]
+                [(+ (p 0) (q/random -2 2)) (+ (p 1) (q/random -2 2))]))))))))
 
 (defn aggregate [nparts]
   (first 
@@ -112,9 +116,19 @@
                                     :link (:id (meta hit)))]
                        [(conj cs c)
                         (kd/insert tree (with-meta (to-v2 (:c c)) c))]))
-                   (let [c0 (center)]
-                     [[c0]
-                      (kd/build-tree [(with-meta (to-v2 (:c c0)) c0)])]))))
+                   (let [c0 (center)
+                         c1 (assoc c0 :c (.add (:c c0) (c/->Point 0 50)) :id 1)
+                         c2 (assoc c0 :c (.add (:c c0) (c/->Point 50 0)) :id 2)
+                         c3 (assoc c0 :c (.add (:c c0) (c/->Point 0 -50)) :id 3)
+                         c4 (assoc c0 :c (.add (:c c0) (c/->Point -50 0)) :id 4)
+                         ]
+                     [[c0] ; [c0 c1 c2 c3 c4]
+                      (kd/build-tree [(with-meta (to-v2 (:c c0)) c0)
+                                     ; (with-meta (to-v2 (:c c1)) c1)
+                                     ; (with-meta (to-v2 (:c c2)) c2)
+                                     ; (with-meta (to-v2 (:c c3)) c3)
+                                     ; (with-meta (to-v2 (:c c4)) c4)
+                                      ])]))))
 
 
 
@@ -133,7 +147,7 @@
   ;      (drop 100)
   ;      first)
   (println 'setup)
-  (aggregate 10000)
+  (aggregate 500)
   )
 
 (defn update-state [state]
@@ -146,19 +160,21 @@
 ;      (doseq [c cs-next] (println (.x (:c c)) (.y (:c c))))
 ;      (println '------------------------------------------)
 ;      (recur cs-next)))
-  (println '==========================================)
-;  (->> state
+;  (println '==========================================)
+  (->> state
 ;      ;(iterate (partial shoot (q/random 5.)))
 ;;      (iterate #(tree (q/random 10.) %))
 ;;      (drop 10)
 ;;      first
-;      (sink 1.)
-;      (iterate-times 10 #(stick (vec (exclude %))))
+      (sink 5.)
+      (iterate-times 5 #(stick (vec (exclude %))))
 ;      ;(iterate-times 10 #(stick (vec %)))
-;      vec
+      vec
 ;      ;(#(do (doseq [c %] (println (.x (:c c)) (.y (:c c)))) %))
-;      )
-  state)
+      )
+ ; state
+ ;
+  )
 
 
 (defn draw-state [state]
@@ -172,13 +188,13 @@
     (when (:link c)
       ; Move origin point to the center of the sketch.
       (q/with-translation [(/ (q/width) 2)
-                          ; 30
-                           (/ (q/height) 2)
+                           30
+                          ; (/ (q/height) 2)
                            ]
         ; Draw the circle.
         ;(println (c 0) (c 1))
 ;        (q/ellipse (c 0) (c 1) 2 2)
-        (q/ellipse (.x (:c c)) (.y (:c c)) (* 2. (:r c)) (* 2. (:r c)))
+        (q/ellipse (.x (:c c)) (.y (:c c)) (* 1.5 (:r c)) (* 1.5 (:r c)))
         (q/line (.x (:c c)) (.y (:c c))
                 (.x (:c (state (:link c)))) (.y (:c (state (:link c)))))
 
