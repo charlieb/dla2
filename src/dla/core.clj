@@ -35,7 +35,8 @@
 
 (defn center []
   (assoc (c/mk-circle 0 0 10)
-         :id 0))
+         :id 0
+         :layer 0))
 (defn closest [p ps] (when ps (apply min-key #(.mag (.sub % p)) ps)))
 
 (defn tree [r circles]
@@ -50,7 +51,7 @@
                  (apply min-key #(.mag (.sub (second %) p))))]
     (if hit
       (conj circles 
-            (assoc (c/mk-circle (.x (second hit)) (.y (second hit)) r) :link (first hit)))
+            (assoc (c/mk-circle (.x (second hit)) (.y (second hit)) r) :link (first hit) :layer (+ 1 (:layer hit))))
       circles)))
 
 (defn shoot [r circles]
@@ -92,7 +93,9 @@
 (defn to-v2 [p] [(.x p) (.y p)])
 (defn to-Point [[x y]] (c/->Point x y))
 (defn stick-particle [tree]
-  (let [sz 300 w 300 -w -300 h 300 -h 0] 
+  (let [sz 500 -sz -500
+        w sz -w -sz 
+        h sz -h -sz] 
     (loop [p [(q/random -w w) (q/random -h h)]]
       (let [near (kd/nearest-neighbor tree p 2)]
         (if (and (= 2 (count near))
@@ -113,22 +116,18 @@
                      (let [[p hit] (stick-particle tree)
                            c (assoc (c/mk-circle (p 0) (p 1) 5) ; radius!
                                     :id (+ 1 (:id (last cs)))
-                                    :link (:id (meta hit)))]
+                                    :link (:id (meta hit))
+                                    :layer (+ 1 (:layer (meta hit))))]
                        [(conj cs c)
                         (kd/insert tree (with-meta (to-v2 (:c c)) c))]))
                    (let [c0 (center)
-                         c1 (assoc c0 :c (.add (:c c0) (c/->Point 0 50)) :id 1)
-                         c2 (assoc c0 :c (.add (:c c0) (c/->Point 50 0)) :id 2)
-                         c3 (assoc c0 :c (.add (:c c0) (c/->Point 0 -50)) :id 3)
-                         c4 (assoc c0 :c (.add (:c c0) (c/->Point -50 0)) :id 4)
-                         ]
-                     [[c0] ; [c0 c1 c2 c3 c4]
-                      (kd/build-tree [(with-meta (to-v2 (:c c0)) c0)
-                                     ; (with-meta (to-v2 (:c c1)) c1)
-                                     ; (with-meta (to-v2 (:c c2)) c2)
-                                     ; (with-meta (to-v2 (:c c3)) c3)
-                                     ; (with-meta (to-v2 (:c c4)) c4)
-                                      ])]))))
+                         c1 (assoc c0 :c (.add (:c c0) (c/->Point 0 150)) :id 1)
+                         c2 (assoc c0 :c (.add (:c c0) (c/->Point 150 0)) :id 2)
+                         c3 (assoc c0 :c (.add (:c c0) (c/->Point 0 -150)) :id 3)
+                         c4 (assoc c0 :c (.add (:c c0) (c/->Point -150 0)) :id 4)
+                         cs [c0]]; c1 c2 c3 c4]]
+                     [cs
+                      (kd/build-tree (vec (map #(with-meta (to-v2 (:c %)) %) cs)))]))))
 
 
 
@@ -147,8 +146,12 @@
   ;      (drop 100)
   ;      first)
   (println 'setup)
-  (aggregate 500)
-  )
+  (let [circles (vec (exclude (aggregate 5000)))]
+    {:circles circles
+     :lit-layer 0
+     :max-layer (apply max (map :layer circles))
+     :frame 0 }
+    ))
 
 (defn update-state [state]
   ; Update sketch state by changing circle color and position.
@@ -160,19 +163,22 @@
 ;      (doseq [c cs-next] (println (.x (:c c)) (.y (:c c))))
 ;      (println '------------------------------------------)
 ;      (recur cs-next)))
-;  (println '==========================================)
-  (->> state
+  (println '=========)
+;  (->> (:circles state)
 ;      ;(iterate (partial shoot (q/random 5.)))
 ;;      (iterate #(tree (q/random 10.) %))
 ;;      (drop 10)
 ;;      first
-      (sink 5.)
-      (iterate-times 5 #(stick (vec (exclude %))))
-;      ;(iterate-times 10 #(stick (vec %)))
-      vec
+;      (sink 5.)
+;      (iterate-times 5 #(stick (vec (exclude %))))
+      ;(iterate-times 5 exclude)
+;      exclude
+;      vec
 ;      ;(#(do (doseq [c %] (println (.x (:c c)) (.y (:c c)))) %))
-      )
- ; state
+;      )
+(assoc state
+        :frame (inc (:frame state))
+        :lit-layer (mod (inc (:lit-layer state)) (:max-layer state)))
  ;
   )
 
@@ -184,26 +190,34 @@
   ;(q/fill 150 150 150)
   (q/no-fill)
   (q/stroke 150 150 150)
-  (doseq [c state]
+  (doseq [c (:circles state)]
     (when (:link c)
       ; Move origin point to the center of the sketch.
       (q/with-translation [(/ (q/width) 2)
-                           30
-                          ; (/ (q/height) 2)
+                           ;30
+                           (/ (q/height) 2)
                            ]
         ; Draw the circle.
         ;(println (c 0) (c 1))
-;        (q/ellipse (c 0) (c 1) 2 2)
-        (q/ellipse (.x (:c c)) (.y (:c c)) (* 1.5 (:r c)) (* 1.5 (:r c)))
-        (q/line (.x (:c c)) (.y (:c c))
-                (.x (:c (state (:link c)))) (.y (:c (state (:link c)))))
+        ;        (q/ellipse (c 0) (c 1) 2 2)
 
-        ))))
+        ;(q/stroke 150 150 (* 10 (:layer c)))
+        (when (= (:layer c) (:lit-layer state))
+          (q/ellipse (.x (:c c)) (.y (:c c)) (* 1.5 (:r c)) (* 1.5 (:r c))))
+        (when (< (:layer c) (:lit-layer state))
+        (q/line (.x (:c c))
+                (.y (:c c))
+                (.x (:c ((:circles state) (:link c)))) 
+                (.y (:c ((:circles state) (:link c))))))
+
+        )))
+  (when (= (:frame state) (:lit-layer state))
+    (q/save-frame "dla5000-####.png")))
 
 
 (q/defsketch dla
   :title "You spin my circle right round"
-  :size [500 500]
+  :size [1000 1000]
   ; setup function called only once, during sketch initialization.
   :setup setup
   ; update-state is called on each iteration before draw-state.
