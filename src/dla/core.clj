@@ -4,8 +4,8 @@
             [constraints.core :as c]
             [kdtree :as kd]))
 
-(def radius 5)
-(def link-length 10) ; 2x radius
+(def radius 5.)
+(def link-length 10.) ; 2x radius
 
 (defn prnt [x] (println x) x)
 (defn iterate-times [n f init]
@@ -46,9 +46,10 @@
                                  (/ (- (* (- D) dx) (* (Math/abs dy) sqrt-disc)) dr2)))]))))
 
 (defn center []
-  (assoc (mk-circle 0 0 10)
+  (assoc (mk-circle 0 0 radius)
          :id 0
          :layer 0))
+
 (defn closest [p ps] (when ps (apply min-key #(.mag (.sub % p)) ps)))
 
 (defn tree [r circles]
@@ -100,7 +101,7 @@
 (defn stick [circles factor] "Circles must stay a fixed distance from their :link"
   (map #(if (:link %) 
           (assoc %
-                 :c (c/dist= (:c %) (:c (circles (:link %)))
+                 :c (c/dist< (:c %) (:c (circles (:link %)))
                              (:link-dist %)
                              factor))
          %)
@@ -165,7 +166,7 @@
   ;      (drop 100)
   ;      first)
   (println 'setup)
-  (let [circles (vec (aggregate 500))
+  (let [circles (vec (aggregate 250))
         ;        circles-changed (vec (map #(assoc % 
         ;                                          :id (+ 1000 (:id %))
         ;                                          :link (when (:link %) (+ 1000 (:link %))))
@@ -175,28 +176,63 @@
 ;    (println ((vec (concat circles circles-changed)) 1001) )
     {:circles circles; (vec (concat circles circles-changed))
      :lit-layer 0
+     :radius radius
+     :link-len link-length
      :max-layer (apply max (map :layer circles))
      :frame 0 }
     ))
 
+(defn settled? [cs1 cs2 max-delta]
+  (not-any? #(> % max-delta)
+            (map #(.mag (.sub (:c %1) (:c %2))) cs1 cs2)))
+
+(defn settled-av? [cs1 cs2 max-delta]
+  (> (* max-delta (count cs1))
+     (reduce + (map #(.mag (.sub (:c %1) (:c %2))) cs1 cs2))))
+
+(defn settle [cs f]
+  (loop [cs cs
+         cs-next (f cs)
+         i 0]
+    (print i '-)
+    (if (settled-av? cs cs-next 0.5000)
+      cs-next
+      (recur cs-next (f cs-next) (inc i)))))
+
 (defn expand-contract [state]
   (let [period 10
+        phase (if (< (mod (:frame state) (* period 2)) period) 'expansion 'contraction)
+        fr (mod (:frame state) period)
 
-        exp-min 1
-        exp-max (* 2 radius)
-        exp-d (/ (- exp-max exp-min) period)
+        ; Refers to expansion or contraction phase exclusion change
+        exc-min 0.5
+        exc-max (* 2. radius) 
+        r (+ (:radius state)
+               (/ (- (if (= phase 'expansion) exc-max exc-min) (:radius state))
+                  (- period fr)))
+                     
 
-        cont-min (* 0.25 link-length)
-        cont-max link-length
-        cont-d (/ (- cont-max cont-min) period)
+        ; Refers to expansion or contraction phase link-len change
+        lin-min (+ (* 2 exc-min) 7.5)
+        lin-max (* 2 exc-max) ;link-length
 
-        fr (mod (:frame state) (* period 2))
-        dir (if (< fr period) + -)
-        cs (map #(assoc % 
-                        :r (dir (:r %) exp-d)
-                        :link-dist (dir (:link-dist %) cont-d))
-                (:circles state))]
-    (vec (iterate-times 50 #(exclude (stick (vec %) 0.2) 0.2) cs))))
+        lin (+ (:link-len state)
+               (/ (- (if (= phase 'expansion) lin-max lin-min) (:link-len state))
+                  (- period fr)))
+
+        _ (println 'r (:r (second (:circles state))) r)
+        _ (println 'li (:link-dist (second (:circles state))) lin)
+        
+        cs (map #(assoc % :r r :link-dist lin) (:circles state))
+
+        _ (println phase 'r (:r (second cs)) r)
+        _ (println phase 'lin (:link-dist (second cs)) lin)
+        _ (println (> lin (* 2 r)))
+        ]
+    (assoc state
+           :radius r
+           :link-len lin
+           :circles (vec (settle cs #(exclude (stick (vec %) 1.0) 0.2))))))
 
 (defn update-state [state]
   ; Update sketch state by changing circle color and position.
@@ -209,8 +245,7 @@
 ;      (println '------------------------------------------)
 ;      (recur cs-next)))
   (println (:frame state))
-  (assoc state
-         :circles (expand-contract state)
+  (assoc (expand-contract state)
          :frame (inc (:frame state))
          :lit-layer (mod (inc (:lit-layer state)) (:max-layer state))))
              ;
@@ -238,7 +273,8 @@
  ;         (q/stroke 150 150 50))
  ;       ;(q/stroke 150 150 (* 10 (:layer c)))
  ;       (when (= (:layer c) (:lit-layer state))
- ;         (q/ellipse (.x (:c c)) (.y (:c c)) (* 1.5 (:r c)) (* 1.5 (:r c))))
+  ;       (q/ellipse (.x (:c c)) (.y (:c c)) (* 2. (:r c)) (* 2. (:r c)))
+         ;)
         ;(when (or true (< (:layer c) (:lit-layer state)))
           (q/line (.x (:c c))
                   (.y (:c c))
