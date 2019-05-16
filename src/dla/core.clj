@@ -166,7 +166,7 @@
   ;      (drop 100)
   ;      first)
   (println 'setup)
-  (let [circles (vec (aggregate 250))
+  (let [circles (vec (aggregate 2000))
         ;        circles-changed (vec (map #(assoc % 
         ;                                          :id (+ 1000 (:id %))
         ;                                          :link (when (:link %) (+ 1000 (:link %))))
@@ -195,17 +195,17 @@
          cs-next (f cs)
          i 0]
     (print i '-)
-    (if (settled-av? cs cs-next 0.5000)
+    (if (or (> i 1000) (settled-av? cs cs-next 0.5000))
       cs-next
       (recur cs-next (f cs-next) (inc i)))))
 
 (defn expand-contract [state]
-  (let [period 10
+  (let [period 30
         phase (if (< (mod (:frame state) (* period 2)) period) 'expansion 'contraction)
         fr (mod (:frame state) period)
 
         ; Refers to expansion or contraction phase exclusion change
-        exc-min 0.5
+        exc-min 0.0
         exc-max (* 2. radius) 
         r (+ (:radius state)
                (/ (- (if (= phase 'expansion) exc-max exc-min) (:radius state))
@@ -213,7 +213,7 @@
                      
 
         ; Refers to expansion or contraction phase link-len change
-        lin-min (+ (* 2 exc-min) 7.5)
+        lin-min (+ (* 2 exc-min) 3.)
         lin-max (* 2 exc-max) ;link-length
 
         lin (+ (:link-len state)
@@ -232,7 +232,7 @@
     (assoc state
            :radius r
            :link-len lin
-           :circles (vec (settle cs #(exclude (stick (vec %) 1.0) 0.2))))))
+           :circles (vec (settle cs (if (= phase 'expansion) #(exclude % 0.2) #(exclude (stick (vec %) 0.5) 0.2)))))))
 
 (defn update-state [state]
   ; Update sketch state by changing circle color and position.
@@ -269,22 +269,24 @@
         ;(println (c 0) (c 1))
         ;        (q/ellipse (c 0) (c 1) 2 2)
 
- ;       (when (> (:id c) 1000) 
- ;         (q/stroke 150 150 50))
- ;       ;(q/stroke 150 150 (* 10 (:layer c)))
- ;       (when (= (:layer c) (:lit-layer state))
-  ;       (q/ellipse (.x (:c c)) (.y (:c c)) (* 2. (:r c)) (* 2. (:r c)))
-         ;)
+        ;       (when (> (:id c) 1000) 
+        ;         (q/stroke 150 150 50))
+        ;       ;(q/stroke 150 150 (* 10 (:layer c)))
+        ;       (when (= (:layer c) (:lit-layer state))
+        ;       (q/ellipse (.x (:c c)) (.y (:c c)) (* 2. (:r c)) (* 2. (:r c)))
+        ;)
         ;(when (or true (< (:layer c) (:lit-layer state)))
-          (q/line (.x (:c c))
-                  (.y (:c c))
-                  (.x (:c ((:circles state) (:link c)))) 
-                  (.y (:c ((:circles state) (:link c)))))
+        (q/line (.x (:c c))
+                (.y (:c c))
+                (.x (:c ((:circles state) (:link c)))) 
+                (.y (:c ((:circles state) (:link c)))))
         ;  )
 
         )))
   ;(when (= (:frame state) (:lit-layer state))
-  ;  (q/save-frame "dla5000-####.png"))
+  (when (< (:frame state) 60)
+    (q/save-frame "dla2000-####.png"))
+  ;)
   )
 
 
