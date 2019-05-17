@@ -2,22 +2,19 @@
   (:require [quil.core :as q]
             [quil.middleware :as m]
             [constraints.core :as c]
-            [kdtree :as kd]))
+            [kdtree :as kd]
+            [clojure.set :as s]))
 
 (def radius 5.)
 (def link-length 10.) ; 2x radius
 
 (defn prnt [x] (println x) x)
+(defn prntc [c] (println 'c (.x (:c c)) (.y (:c c)) (:id c) (:link c) (:back-links c)) c)
+(defn prntcs [cs] (doseq [c cs] (prntc c)) cs)
 (defn iterate-times [n f init]
  (first (drop n (iterate f init))))
 (defn to-v2 [p] [(.x p) (.y p)])
 (defn to-Point [[x y]] (c/->Point x y))
-
-
-(defn mk-circle [x y r] {:c (c/->Point x y) :r r :id 0 :link-dist 0})
-(defn add-circle [c cs] 
-  (let [id (+ 1 (max (map :id cs)))]
-    (conj (assoc c :id id) cs)))
 
 (defn intersections [c p1 p2]
   ;; http://mathworld.wolfram.com/Circle-LineIntersection.html
@@ -45,46 +42,32 @@
          (.add (:c c) (c/->Point (/ (- (* D dy)     (* (sgn dy) dx sqrt-disc)) dr2)
                                  (/ (- (* (- D) dx) (* (Math/abs dy) sqrt-disc)) dr2)))]))))
 
+
+;;;;;;;;;; Circles ;;;;;;;;;;;;;;
+(defn mk-circle [x y r] {:c (c/->Point x y) :r r :id 0 :link-dist 0})
+(defn add-circle [c cs] 
+  (let [id (+ 1 (max (map :id cs)))]
+    (conj (assoc c :id id) cs)))
+
+
 (defn center []
   (assoc (mk-circle 0 0 radius)
          :id 0
          :layer 0))
 
-(defn closest [p ps] (when ps (apply min-key #(.mag (.sub % p)) ps)))
+(defn randomize-radii [circles]
+  (map (fn [c] (assoc c :r (q/random 2.5 10))) circles))
 
-(defn tree [r circles]
-  (let [a (q/random (* 2 Math/PI))
-        x (* 1000. (Math/cos a))
-        y (* 1000. (Math/sin a))
-        p (c/->Point x y)
-        hit (->> circles
-                 (map-indexed (fn [idx circ] "Find the two intersections and give the closest one back with the index"
-                                [idx (closest p (intersections (assoc circ :r (+ r (:r circ))) p (c/->Point 0 0)))]))
-                 (filter #(not (nil? (second %))))
-                 (apply min-key #(.mag (.sub (second %) p))))]
-    (if hit
-      (conj circles 
-            (assoc (mk-circle (.x (second hit)) (.y (second hit)) r) :link (first hit) :layer (+ 1 (:layer hit))))
-      circles)))
+(defn add-back-links [circles]
+  (map (fn [c] 
+         (assoc c :back-links 
+                (->> circles
+                     (filter #(= (:id c) (:link %)))
+                     (map :id)
+                     set)))
+       circles))
 
-(defn shoot [r circles]
-  (let [a (q/random (* 2 Math/PI))
-        x (* 1000. (Math/cos a))
-        y (* 1000. (Math/sin a))
-        p (c/->Point x y)
-        hit (->> circles
-                (mapcat #(intersections (assoc % :r (+ r (:r %))) p (c/->Point 0 0)))
-                (apply min-key #(.mag (.sub p %))))]
-    (if hit
-      (conj circles (mk-circle (.x hit) (.y hit) r))
-      circles)))
-
-(defn sink [y circles]
-  (cons
-    (first circles) ; Don't move the origin circle
-    (map 
-      #(assoc % :c (.add (:c %) (c/->Point 0 y)))
-      (rest circles))))
+;;;;;;;;;; Constraints ;;;;;;;;;;;;;;
 
 (defn exclude [circles factor]
   (let [tree (kd/build-tree (map #(with-meta (to-v2 (:c %)) %) circles))]
@@ -98,14 +81,51 @@
                                    factor))))
            (rest circles)))))
 
+(defn average-pull [p ps dist] "Sums the offsets of ps from p whos magnitude exceeds dist"
+  (let [far-ps (->> ps
+                    (map #(.sub % p))
+                    (filter #(> (.mag %) dist)))]
+    ;(doseq [fp far-ps] (println 'near (.x fp) (.y fp)))
+    (if (> (count far-ps) 0)
+      (let [res (.div (reduce #(.add %1 %2) (c/->Point 0 0) far-ps)
+                      (count far-ps))]
+        ;       (println 'av (.x res) (.y res))
+        res)
+      (c/->Point 0 0))))
+
 (defn stick [circles factor] "Circles must stay a fixed distance from their :link"
-  (map #(if (:link %) 
-          (assoc %
-                 :c (c/dist< (:c %) (:c (circles (:link %)))
-                             (:link-dist %)
-                             factor))
-         %)
-       circles))
+  (sort-by :id
+           (map 
+             (fn [c]
+               (let [cop (average-pull (:c c) (map (comp :c circles) ; center of pull == cop
+                                                   (if (:link c)
+                                                     (cons (:link c) (:back-links c))
+                                                     (:back-links c)))
+                                       (:link-dist c))]
+                 (if (zero? (.mag cop))
+                   c
+                   (assoc c :c (c/dist< (:c c) (.add (:c c) cop) (:link-dist c) factor)))))
+   ;          circles
+    (shuffle circles))
+   ))
+
+
+(defn settled? [cs1 cs2 max-delta]
+  (not-any? #(> % max-delta)
+            (map #(.mag (.sub (:c %1) (:c %2))) cs1 cs2)))
+
+(defn settled-av? [cs1 cs2 max-delta]
+  (> (* max-delta (count cs1))
+     (reduce + (map #(.mag (.sub (:c %1) (:c %2))) cs1 cs2))))
+
+(defn settle [cs f]
+  (loop [cs cs
+         cs-next (f cs)
+         i 0]
+    (print i '-)
+    (if (or (> i 1000) (settled-av? cs cs-next 0.5000))
+      cs-next
+      (recur cs-next (f cs-next) (inc i)))))
 
 ;;;;;;;;;; KD-TREE Particle Approach ;;;;;;;;;;;;;;
 (defn stick-particle [tree]
@@ -148,56 +168,32 @@
                       (kd/build-tree (vec (map #(with-meta (to-v2 (:c %)) %) cs)))]))))
 
 
-(defn randomize-radii [circles]
-  (map (fn [c] (assoc c :r (q/random 2.5 10))) circles))
+;;;;;;;;;; Circle movement  ;;;;;;;;;;;;;;
 
-;;;;;;;;;; QUIL ;;;;;;;;;;;;;;
-(defn setup []
-  ; Set frame rate to 30 frames per second.
-  (q/frame-rate 30)
-  ; Set color mode to HSB (HSV) instead of default RGB.
-  (q/color-mode :hsb)
-  ; setup function returns initial state. It contains
-  ; circle color and position.
+(defn sink [y circles]
+  (cons
+    (first circles) ; Don't move the origin circle
+    (map 
+      #(assoc % :c (.add (:c %) (c/->Point 0 y)))
+      (rest circles))))
   
-  ;  (->> [(center)]
-  ;      ;(iterate (partial shoot (q/random 5.)))
-  ;      (iterate #(tree (q/random 10.) %))
-  ;      (drop 100)
-  ;      first)
-  (println 'setup)
-  (let [circles (vec (aggregate 2000))
-        ;        circles-changed (vec (map #(assoc % 
-        ;                                          :id (+ 1000 (:id %))
-        ;                                          :link (when (:link %) (+ 1000 (:link %))))
-        ;                                  (iterate-times 2 #(vec (stick %)) circles)))
-        ]
-;    (println (count circles) (count circles-changed))
-;    (println ((vec (concat circles circles-changed)) 1001) )
-    {:circles circles; (vec (concat circles circles-changed))
-     :lit-layer 0
-     :radius radius
-     :link-len link-length
-     :max-layer (apply max (map :layer circles))
-     :frame 0 }
-    ))
+(defn find-leaf-ids [circles]
+  (s/difference (set (map :id circles))
+                (set (map :link circles))))
 
-(defn settled? [cs1 cs2 max-delta]
-  (not-any? #(> % max-delta)
-            (map #(.mag (.sub (:c %1) (:c %2))) cs1 cs2)))
+(defn pull-leaves [circles]
+  (let [leaves (find-leaf-ids circles)]
+    (cons (first circles)
+          (map #(if (contains? leaves (:id %))
+                  (assoc %
+                         :c (.add (:c %) (.mul (.norm (:c %)) 50.0)))
+                  %)
+               (rest circles)))))
 
-(defn settled-av? [cs1 cs2 max-delta]
-  (> (* max-delta (count cs1))
-     (reduce + (map #(.mag (.sub (:c %1) (:c %2))) cs1 cs2))))
-
-(defn settle [cs f]
-  (loop [cs cs
-         cs-next (f cs)
-         i 0]
-    (print i '-)
-    (if (or (> i 1000) (settled-av? cs cs-next 0.5000))
-      cs-next
-      (recur cs-next (f cs-next) (inc i)))))
+(defn expand [circles]
+  (cons (first circles)
+    (map #(assoc % :c (.add (:c %) (.mul (.norm (:c %)) 0.5)))
+         (rest circles))))
 
 (defn expand-contract [state]
   (let [period 30
@@ -234,18 +230,31 @@
            :link-len lin
            :circles (vec (settle cs (if (= phase 'expansion) #(exclude % 0.2) #(exclude (stick (vec %) 0.5) 0.2)))))))
 
+
+;;;;;;;;;; QUIL ;;;;;;;;;;;;;;
+(defn setup []
+  ; Set frame rate to 30 frames per second.
+  (q/frame-rate 30)
+  ; Set color mode to HSB (HSV) instead of default RGB.
+  (q/color-mode :hsb)
+  (println 'setup)
+  (let [circles (vec (add-back-links (aggregate 1000)))]
+    (prntcs circles)
+;    (println (count circles) (count circles-changed))
+;    (println ((vec (concat circles circles-changed)) 1001) )
+    {:circles circles; (vec (concat circles circles-changed))
+     :lit-layer 0
+     :radius radius
+     :link-len link-length
+     :max-layer (apply max (map :layer circles))
+     :frame 0 }
+    ))
+
+
 (defn update-state [state]
-  ; Update sketch state by changing circle color and position.
-;  (doseq [c state] (println (.x (:c c)) (.y (:c c))))
-;  (println '>>>>>>>>>>>>>>>)
-;  (loop [cs state]
-;    (let [cs-next (tree 5. cs)]
-;      (println cs-next)
-;      (doseq [c cs-next] (println (.x (:c c)) (.y (:c c))))
-;      (println '------------------------------------------)
-;      (recur cs-next)))
   (println (:frame state))
-  (assoc (expand-contract state)
+  (assoc state ;(expand-contract state)
+         :circles (vec (settle (vec (pull-leaves (:circles state))) #(stick (vec %) 0.1)))
          :frame (inc (:frame state))
          :lit-layer (mod (inc (:lit-layer state)) (:max-layer state))))
              ;
@@ -258,13 +267,13 @@
   ;(q/fill 150 150 150)
   (q/no-fill)
   (q/stroke 150 150 150)
+  ; Move origin point to the center of the sketch.
+  (q/with-translation [(/ (q/width) 2)
+                       ;30
+                       (/ (q/height) 2)
+                       ]
   (doseq [c (:circles state)]
     (when (:link c)
-      ; Move origin point to the center of the sketch.
-      (q/with-translation [(/ (q/width) 2)
-                           ;30
-                           (/ (q/height) 2)
-                           ]
         ; Draw the circle.
         ;(println (c 0) (c 1))
         ;        (q/ellipse (c 0) (c 1) 2 2)
@@ -273,7 +282,11 @@
         ;         (q/stroke 150 150 50))
         ;       ;(q/stroke 150 150 (* 10 (:layer c)))
         ;       (when (= (:layer c) (:lit-layer state))
-        ;       (q/ellipse (.x (:c c)) (.y (:c c)) (* 2. (:r c)) (* 2. (:r c)))
+  ;      (if (some #(= % (:id c)) (find-leaf-ids (:circles state)))
+  ;             (q/ellipse (.x (:c c)) (.y (:c c)) (* 2. (:r c)) (* 2. (:r c)))
+  ;             (q/ellipse (.x (:c c)) (.y (:c c)) (* 1. (:r c)) (* 1. (:r c)))
+
+  ;             )
         ;)
         ;(when (or true (< (:layer c) (:lit-layer state)))
         (q/line (.x (:c c))
@@ -284,8 +297,8 @@
 
         )))
   ;(when (= (:frame state) (:lit-layer state))
-  (when (< (:frame state) 60)
-    (q/save-frame "dla2000-####.png"))
+;  (when (< (:frame state) 60)
+;    (q/save-frame "dla2000-####.png"))
   ;)
   )
 
