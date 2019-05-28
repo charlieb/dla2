@@ -107,6 +107,23 @@
 
 ;;;;;;;;;; Constraints ;;;;;;;;;;;;;;
 
+(defn settled? [cs1 cs2 max-delta]
+  (not-any? #(> % max-delta)
+            (map #(c/mag (c/sub (:c %1) (:c %2))) cs1 cs2)))
+
+(defn settled-av? [cs1 cs2 max-delta]
+  (> (* max-delta (count cs1))
+     (reduce + (map #(c/mag (c/sub (:c %1) (:c %2))) cs1 cs2))))
+
+(defn settle [cs f]
+  (loop [cs cs
+         cs-next (f cs)
+         i 0]
+    ;(print i '-)
+    (if (or (> i 1000) (settled? cs cs-next 0.0001))
+      cs-next
+      (recur cs-next (f cs-next) (inc i)))))
+
 (defn exclude [circles factor]
   (let [tree (kd/build-tree (map #(with-meta (to-v2 (:c %)) %) circles))]
     (cons
@@ -135,36 +152,37 @@
   (sort-by :id
            (map 
              (fn [c]
-               (if (empty? (:back-links c)) c
+               ;(if (empty? (:back-links c)) c
                (let [cop (average-pull (:c c) (map (comp :c circles) ; center of pull == cop
                                                    (if (:link c)
                                                      (cons (:link c) (:back-links c))
                                                      (:back-links c)))
                                        (:link-dist c))]
-                 (if (zero? (c/mag cop))
+                 (if (< (c/mag cop) 1E-6)
                    c
-                   (assoc c :c (c/dist< (:c c) (c/add (:c c) cop) (:link-dist c) factor))))))
+                   ; FIXME it's fairly likely that the average of the pulling positions could
+                   ; be within range even if the other points aren't -> no movement
+                   (assoc c :c (c/dist< (:c c) (c/add (:c c) cop) (:link-dist c) factor)))))
+               ;)
    ;          circles
     (shuffle circles))
    ))
 
+(defn limit-dist1 "Applies distance limit on first link that is too long"
+  [c circles factor] 
+  (if (nil? (:link c))
+    c
+  (let [nears (->> (if (:link c) (cons (:link c) (:back-links c)) (:back-links c))
+                   (map #(nth circles %))
+                   (filter #(> (c/mag (c/sub (:c c) (:c %))) (:link-dist c))))]
+    (if (empty? nears) 
+      c
+      (assoc c :c (c/dist< (:c c) (:c (rand-nth nears)) (:link-dist c) factor)))))) 
 
-(defn settled? [cs1 cs2 max-delta]
-  (not-any? #(> % max-delta)
-            (map #(c/mag (c/sub (:c %1) (:c %2))) cs1 cs2)))
-
-(defn settled-av? [cs1 cs2 max-delta]
-  (> (* max-delta (count cs1))
-     (reduce + (map #(c/mag (c/sub (:c %1) (:c %2))) cs1 cs2))))
-
-(defn settle [cs f]
-  (loop [cs cs
-         cs-next (f cs)
-         i 0]
-    (print i '-)
-    (if (or (> i 1000) (settled? cs cs-next 0.000001))
-      cs-next
-      (recur cs-next (f cs-next) (inc i)))))
+(defn limit-dist [circles factor]
+  (sort-by :id
+  (map (fn [c] (first (settle [c] #(list (limit-dist1 (first %) circles factor)))))
+       (shuffle circles))))
 
 ;;;;;;;;;; Circle movement  ;;;;;;;;;;;;;;
 
@@ -177,7 +195,7 @@
     (cons (first circles)
           (map #(if (contains? leaves (:id %))
                   (assoc %
-                         :c (c/add (:c %) (c/mul (c/norm (:c %)) 5.0)))
+                         :c (c/add (:c %) (c/mul (c/norm (:c %)) 25.0)))
                   %)
                (rest circles)))))
 
@@ -229,7 +247,7 @@
   ; Set color mode to HSB (HSV) instead of default RGB.
   (q/color-mode :hsb)
   (println 'setup)
-  (let [circles (vec (add-back-links (aggregate 1000)))]
+  (let [circles (vec (add-back-links (aggregate 100)))]
     ;(prntcs circles)
 ;    (println (count circles) (count circles-changed))
 ;    (println ((vec (concat circles circles-changed)) 1001) )
@@ -245,7 +263,8 @@
 (defn update-state [state]
   (println (:frame state))
   (assoc state ;(expand-contract state)
-         :circles (vec (settle (vec (pull-leaves (:circles state))) #(stick (vec %) 0.5)))
+         :circles (vec (settle (vec (pull-leaves (:circles state))) 
+                               #(limit-dist (vec %) 1.0)))
          :frame (inc (:frame state))
          :lit-layer (mod (inc (:lit-layer state)) (:max-layer state))))
              ;
@@ -264,6 +283,8 @@
                        (/ (q/height) 2)
                        ]
   (doseq [c (:circles state)]
+      (when (zero? (:id c))
+        (q/ellipse (:x (:c c)) (:y (:c c)) (* 1.5 (:r c)) (* 1.5 (:r c))))
     (when (:link c)
         ; Draw the circle.
         ;(println (c 0) (c 1))
@@ -273,11 +294,11 @@
         ;         (q/stroke 150 150 50))
         ;       ;(q/stroke 150 150 (* 10 (:layer c)))
         ;       (when (= (:layer c) (:lit-layer state))
-  ;      (if (some #(= % (:id c)) (find-leaf-ids (:circles state)))
-  ;             (q/ellipse (:x (:c c)) (:y (:c c)) (* 2. (:r c)) (* 2. (:r c)))
-  ;             (q/ellipse (:x (:c c)) (:y (:c c)) (* 1. (:r c)) (* 1. (:r c)))
+        (if (some #(= % (:id c)) (find-leaf-ids (:circles state)))
+               ;(q/ellipse (:x (:c c)) (:y (:c c)) (* 2. (:r c)) (* 2. (:r c)))
+               (q/ellipse (:x (:c c)) (:y (:c c)) (* 1. (:r c)) (* 1. (:r c)))
 
-  ;             )
+               )
         ;)
         ;(when (or true (< (:layer c) (:lit-layer state)))
         (q/line (:x (:c c))
