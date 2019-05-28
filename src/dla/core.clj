@@ -9,23 +9,21 @@
 (def link-length 10.) ; 2x radius
 
 (defn prnt [x] (println x) x)
-(defn prntc [c] (println 'c (.x (:c c)) (.y (:c c)) (:id c) (:link c) (:back-links c)) c)
+(defn prntc [c] (println 'c (:x (:c c)) (:y (:c c)) (:id c) (:link c) (:back-links c)) c)
 (defn prntcs [cs] (doseq [c cs] (prntc c)) cs)
-(defn iterate-times [n f init]
- (first (drop n (iterate f init))))
-(defn to-v2 [p] [(.x p) (.y p)])
-(defn to-Point [[x y]] (c/->Point x y))
+(defn iterate-times [n f init] (first (drop n (iterate f init))))
+(defn to-v2 [p] [(:x p) (:y p)])
 
 (defn intersections [c p1 p2]
   ;; http://mathworld.wolfram.com/Circle-LineIntersection.html
-  (let [pc1 (c/.sub p1 (:c c)) ; move reference frame to center of circle
-        pc2 (c/.sub p2 (:c c))
-        d (c/.sub pc2 pc1)
+  (let [pc1 (c/sub p1 (:c c)) ; move reference frame to center of circle
+        pc2 (c/sub p2 (:c c))
+        d (c/sub pc2 pc1)
         dr (c/mag d)
-        D (- (* (.x pc1) (.y pc2)) (* (.x pc2) (.y pc1)))
+        D (- (* (:x pc1) (:y pc2)) (* (:x pc2) (:y pc1)))
         ; some convenience variables
-        dx (.x d)
-        dy (.y d)
+        dx (:x d)
+        dy (:y d)
         dr2 (Math/pow dr 2)
         r2 (Math/pow (:r c) 2)
         D2 (Math/pow D 2)
@@ -35,16 +33,15 @@
         ]
     (when (< 0 disc) ; there is an intersection
       (if (= 0 disc) ; it's a tangent i.e. a single intersection point
-        [(.add (:c c) (c/->Point (/ (* D dy) dr2)
-                                 (/ (* (- D) dx) dr2)))]
-        [(.add (:c c) (c/->Point (/ (+ (* D dy)     (* (sgn dy) dx sqrt-disc)) dr2)
-                                 (/ (+ (* (- D) dx) (* (Math/abs dy) sqrt-disc)) dr2)))
-         (.add (:c c) (c/->Point (/ (- (* D dy)     (* (sgn dy) dx sqrt-disc)) dr2)
-                                 (/ (- (* (- D) dx) (* (Math/abs dy) sqrt-disc)) dr2)))]))))
+        [(c/add (:c c) {:x (/ (* D dy) dr2) :y (/ (* (- D) dx) dr2)})]
+        [(c/add (:c c) {:x (/ (+ (* D dy)     (* (sgn dy) dx sqrt-disc)) dr2)
+                        :y (/ (+ (* (- D) dx) (* (Math/abs dy) sqrt-disc)) dr2)})
+         (c/add (:c c) {:x (/ (- (* D dy)     (* (sgn dy) dx sqrt-disc)) dr2)
+                        :y (/ (- (* (- D) dx) (* (Math/abs dy) sqrt-disc)) dr2)})]))))
 
 
 ;;;;;;;;;; Circles ;;;;;;;;;;;;;;
-(defn mk-circle [x y r] {:c (c/->Point x y) :r r :id 0 :link-dist 0})
+(defn mk-circle [x y r] {:c {:x x :y y} :r r :id 0 :link-dist 0})
 (defn add-circle [c cs] 
   (let [id (+ 1 (max (map :id cs)))]
     (conj (assoc c :id id) cs)))
@@ -66,66 +63,6 @@
                      (map :id)
                      set)))
        circles))
-
-;;;;;;;;;; Constraints ;;;;;;;;;;;;;;
-
-(defn exclude [circles factor]
-  (let [tree (kd/build-tree (map #(with-meta (to-v2 (:c %)) %) circles))]
-    (cons
-      (first circles)
-      (map (fn [c] 
-              (let [c2 (meta (second (kd/nearest-neighbor tree (to-v2 (:c c)) 2)))]
-                (assoc c 
-                       :c (c/dist> (:c c) (:c c2)
-                                   (+ (:r c) (:r c2)) ; desired-dist
-                                   factor))))
-           (rest circles)))))
-
-(defn average-pull [p ps dist] "Sums the offsets of ps from p whos magnitude exceeds dist"
-  (let [far-ps (->> ps
-                    (map #(.sub % p))
-                    (filter #(> (.mag %) dist)))]
-    ;(doseq [fp far-ps] (println 'near (.x fp) (.y fp)))
-    (if (> (count far-ps) 0)
-      (let [res (.div (reduce #(.add %1 %2) (c/->Point 0 0) far-ps)
-                      (count far-ps))]
-        ;       (println 'av (.x res) (.y res))
-        res)
-      (c/->Point 0 0))))
-
-(defn stick [circles factor] "Circles must stay a fixed distance from their :link"
-  (sort-by :id
-           (map 
-             (fn [c]
-               (let [cop (average-pull (:c c) (map (comp :c circles) ; center of pull == cop
-                                                   (if (:link c)
-                                                     (cons (:link c) (:back-links c))
-                                                     (:back-links c)))
-                                       (:link-dist c))]
-                 (if (zero? (.mag cop))
-                   c
-                   (assoc c :c (c/dist< (:c c) (.add (:c c) cop) (:link-dist c) factor)))))
-   ;          circles
-    (shuffle circles))
-   ))
-
-
-(defn settled? [cs1 cs2 max-delta]
-  (not-any? #(> % max-delta)
-            (map #(.mag (.sub (:c %1) (:c %2))) cs1 cs2)))
-
-(defn settled-av? [cs1 cs2 max-delta]
-  (> (* max-delta (count cs1))
-     (reduce + (map #(.mag (.sub (:c %1) (:c %2))) cs1 cs2))))
-
-(defn settle [cs f]
-  (loop [cs cs
-         cs-next (f cs)
-         i 0]
-    (print i '-)
-    (if (or (> i 1000) (settled-av? cs cs-next 0.5000))
-      cs-next
-      (recur cs-next (f cs-next) (inc i)))))
 
 ;;;;;;;;;; KD-TREE Particle Approach ;;;;;;;;;;;;;;
 (defn stick-particle [tree]
@@ -159,24 +96,78 @@
                        [(conj cs c)
                         (kd/insert tree (with-meta (to-v2 (:c c)) c))]))
                    (let [c0 (center)
-                         c1 (assoc c0 :c (.add (:c c0) (c/->Point 0 150)) :id 1)
-                         c2 (assoc c0 :c (.add (:c c0) (c/->Point 150 0)) :id 2)
-                         c3 (assoc c0 :c (.add (:c c0) (c/->Point 0 -150)) :id 3)
-                         c4 (assoc c0 :c (.add (:c c0) (c/->Point -150 0)) :id 4)
+                         c1 (assoc c0 :c (c/add (:c c0) {:x    0 :y  150}) :id 1)
+                         c2 (assoc c0 :c (c/add (:c c0) {:x  150 :y    0}) :id 2)
+                         c3 (assoc c0 :c (c/add (:c c0) {:x    0 :y -150}) :id 3)
+                         c4 (assoc c0 :c (c/add (:c c0) {:x -150 :y    0}) :id 4)
                          cs [c0]]; c1 c2 c3 c4]]
                      [cs
                       (kd/build-tree (vec (map #(with-meta (to-v2 (:c %)) %) cs)))]))))
 
 
+;;;;;;;;;; Constraints ;;;;;;;;;;;;;;
+
+(defn exclude [circles factor]
+  (let [tree (kd/build-tree (map #(with-meta (to-v2 (:c %)) %) circles))]
+    (cons
+      (first circles)
+      (map (fn [c] 
+              (let [c2 (meta (second (kd/nearest-neighbor tree (to-v2 (:c c)) 2)))]
+                (assoc c 
+                       :c (c/dist> (:c c) (:c c2)
+                                   (+ (:r c) (:r c2)) ; desired-dist
+                                   factor))))
+           (rest circles)))))
+
+(defn average-pull [p ps dist] "Sums the offsets of ps from p whos magnitude exceeds dist"
+  (let [far-ps (->> ps
+                    (map #(c/sub % p))
+                    (filter #(> (c/mag %) dist)))]
+    ;(doseq [fp far-ps] (println 'near (:x fp) (:y fp)))
+    (if (> (count far-ps) 0)
+      (let [res (c/div (reduce #(c/add %1 %2) {:x 0 :y 0} far-ps)
+                       (count far-ps))]
+        ;       (println 'av (:x res) (:y res))
+        res)
+      {:x 0 :y 0})))
+
+(defn stick [circles factor] "Circles must stay a fixed distance from their :link"
+  (sort-by :id
+           (map 
+             (fn [c]
+               (if (empty? (:back-links c)) c
+               (let [cop (average-pull (:c c) (map (comp :c circles) ; center of pull == cop
+                                                   (if (:link c)
+                                                     (cons (:link c) (:back-links c))
+                                                     (:back-links c)))
+                                       (:link-dist c))]
+                 (if (zero? (c/mag cop))
+                   c
+                   (assoc c :c (c/dist< (:c c) (c/add (:c c) cop) (:link-dist c) factor))))))
+   ;          circles
+    (shuffle circles))
+   ))
+
+
+(defn settled? [cs1 cs2 max-delta]
+  (not-any? #(> % max-delta)
+            (map #(c/mag (c/sub (:c %1) (:c %2))) cs1 cs2)))
+
+(defn settled-av? [cs1 cs2 max-delta]
+  (> (* max-delta (count cs1))
+     (reduce + (map #(c/mag (c/sub (:c %1) (:c %2))) cs1 cs2))))
+
+(defn settle [cs f]
+  (loop [cs cs
+         cs-next (f cs)
+         i 0]
+    (print i '-)
+    (if (or (> i 1000) (settled? cs cs-next 0.000001))
+      cs-next
+      (recur cs-next (f cs-next) (inc i)))))
+
 ;;;;;;;;;; Circle movement  ;;;;;;;;;;;;;;
 
-(defn sink [y circles]
-  (cons
-    (first circles) ; Don't move the origin circle
-    (map 
-      #(assoc % :c (.add (:c %) (c/->Point 0 y)))
-      (rest circles))))
-  
 (defn find-leaf-ids [circles]
   (s/difference (set (map :id circles))
                 (set (map :link circles))))
@@ -186,13 +177,13 @@
     (cons (first circles)
           (map #(if (contains? leaves (:id %))
                   (assoc %
-                         :c (.add (:c %) (.mul (.norm (:c %)) 50.0)))
+                         :c (c/add (:c %) (c/mul (c/norm (:c %)) 5.0)))
                   %)
                (rest circles)))))
 
 (defn expand [circles]
   (cons (first circles)
-    (map #(assoc % :c (.add (:c %) (.mul (.norm (:c %)) 0.5)))
+    (map #(assoc % :c (c/add (:c %) (c/mul (c/norm (:c %)) 0.5)))
          (rest circles))))
 
 (defn expand-contract [state]
@@ -239,7 +230,7 @@
   (q/color-mode :hsb)
   (println 'setup)
   (let [circles (vec (add-back-links (aggregate 1000)))]
-    (prntcs circles)
+    ;(prntcs circles)
 ;    (println (count circles) (count circles-changed))
 ;    (println ((vec (concat circles circles-changed)) 1001) )
     {:circles circles; (vec (concat circles circles-changed))
@@ -254,7 +245,7 @@
 (defn update-state [state]
   (println (:frame state))
   (assoc state ;(expand-contract state)
-         :circles (vec (settle (vec (pull-leaves (:circles state))) #(stick (vec %) 0.1)))
+         :circles (vec (settle (vec (pull-leaves (:circles state))) #(stick (vec %) 0.5)))
          :frame (inc (:frame state))
          :lit-layer (mod (inc (:lit-layer state)) (:max-layer state))))
              ;
@@ -283,16 +274,16 @@
         ;       ;(q/stroke 150 150 (* 10 (:layer c)))
         ;       (when (= (:layer c) (:lit-layer state))
   ;      (if (some #(= % (:id c)) (find-leaf-ids (:circles state)))
-  ;             (q/ellipse (.x (:c c)) (.y (:c c)) (* 2. (:r c)) (* 2. (:r c)))
-  ;             (q/ellipse (.x (:c c)) (.y (:c c)) (* 1. (:r c)) (* 1. (:r c)))
+  ;             (q/ellipse (:x (:c c)) (:y (:c c)) (* 2. (:r c)) (* 2. (:r c)))
+  ;             (q/ellipse (:x (:c c)) (:y (:c c)) (* 1. (:r c)) (* 1. (:r c)))
 
   ;             )
         ;)
         ;(when (or true (< (:layer c) (:lit-layer state)))
-        (q/line (.x (:c c))
-                (.y (:c c))
-                (.x (:c ((:circles state) (:link c)))) 
-                (.y (:c ((:circles state) (:link c)))))
+        (q/line (:x (:c c))
+                (:y (:c c))
+                (:x (:c ((:circles state) (:link c)))) 
+                (:y (:c ((:circles state) (:link c)))))
         ;  )
 
         )))
