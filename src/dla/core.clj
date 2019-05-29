@@ -6,7 +6,7 @@
             [clojure.set :as s]))
 
 (def radius 5.)
-(def link-length 10.) ; 2x radius
+(def link-length 11.) ; 2x radius
 
 (defn prnt [x] (println x) x)
 (defn prntc [c] (println 'c (:x (:c c)) (:y (:c c)) (:id c) (:link c) (:back-links c)) c)
@@ -120,7 +120,7 @@
          cs-next (f cs)
          i 0]
     ;(print i '-)
-    (if (or (> i 1000) (settled? cs cs-next 0.0000001))
+    (if (or (> i 1000) (settled? cs cs-next 0.0001))
       cs-next
       (recur cs-next (f cs-next) (inc i)))))
 
@@ -180,12 +180,12 @@
   (s/difference (set (map :id circles))
                 (set (map :link circles))))
 
-(defn pull-leaves [circles]
+(defn pull-leaves [circles dist]
   (let [leaves (find-leaf-ids circles)]
     (cons (first circles)
           (map #(if (contains? leaves (:id %))
                   (assoc %
-                         :c (c/add (:c %) (c/mul (c/norm (:c %)) 1.0)))
+                         :c (c/add (:c %) (c/mul (c/norm (:c %)) dist)))
                   %)
                (rest circles)))))
 
@@ -227,7 +227,7 @@
     (assoc state
            :radius r
            :link-len lin
-           :circles (vec (settle cs (if (= phase 'expansion) #(exclude % 0.2) #(exclude (stick (vec %) 0.5) 0.2)))))))
+           :circles (vec (settle cs (if (= phase 'expansion) #(exclude % 0.2) #(exclude (limit-dist (vec %) 0.5) 0.2)))))))
 
 
 ;;;;;;;;;; QUIL ;;;;;;;;;;;;;;
@@ -235,9 +235,9 @@
   ; Set frame rate to 30 frames per second.
   (q/frame-rate 30)
   ; Set color mode to HSB (HSV) instead of default RGB.
-  (q/color-mode :hsb)
+  ;(q/color-mode :hsb)
   (println 'setup)
-  (let [circles (vec (add-back-links (aggregate 50)))]
+  (let [circles (vec (add-back-links (aggregate 500)))]
     ;(prntcs circles)
 ;    (println (count circles) (count circles-changed))
 ;    (println ((vec (concat circles circles-changed)) 1001) )
@@ -253,12 +253,18 @@
 (defn update-state [state]
   (println (:frame state))
   (assoc state ;(expand-contract state)
-         :circles (vec (settle (vec (pull-leaves (:circles state))) 
-                               #(-> % 
-                                    vec
-                                    (limit-dist 1.0)
-                                    (exclude 1.0)
-                                    vec)))
+         ; :circles (vec (settle (vec (pull-leaves (:circles state))) 
+         ;                      #(-> % 
+         ;                           vec
+         ;                           (limit-dist 1.0)
+         ;                           (exclude 0.5)
+         ;                           vec)))
+         :circles (-> (:circles state) 
+                      (pull-leaves 2.0)
+                      vec
+                      (limit-dist 0.2)
+                      (exclude 0.2)
+                      vec)
          :frame (inc (:frame state))
          :lit-layer (mod (inc (:lit-layer state)) (:max-layer state))))
              ;
@@ -279,7 +285,7 @@
   (doseq [c (:circles state)]
       (when (zero? (:id c))
         (q/ellipse (:x (:c c)) (:y (:c c)) (* 1.5 (:r c)) (* 1.5 (:r c))))
-    (when (:link c)
+      (when (:link c)
         ; Draw the circle.
         ;(println (c 0) (c 1))
         ;        (q/ellipse (c 0) (c 1) 2 2)
@@ -288,12 +294,15 @@
         ;         (q/stroke 150 150 50))
         ;       ;(q/stroke 150 150 (* 10 (:layer c)))
         ;       (when (= (:layer c) (:lit-layer state))
+        (q/stroke 200 200 200)
+        (q/ellipse (:x (:c c)) (:y (:c c)) (* 2. (:r c)) (* 2. (:r c)))
         (if (some #(= % (:id c)) (find-leaf-ids (:circles state)))
                ;(q/ellipse (:x (:c c)) (:y (:c c)) (* 2. (:r c)) (* 2. (:r c)))
                (q/ellipse (:x (:c c)) (:y (:c c)) (* 1. (:r c)) (* 1. (:r c)))
 
                )
         ;)
+        (q/stroke 150 150 50)
         ;(when (or true (< (:layer c) (:lit-layer state)))
         (q/line (:x (:c c))
                 (:y (:c c))
