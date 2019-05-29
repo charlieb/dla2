@@ -120,20 +120,30 @@
          cs-next (f cs)
          i 0]
     ;(print i '-)
-    (if (or (> i 1000) (settled? cs cs-next 0.0001))
+    (if (or (> i 1000) (settled? cs cs-next 0.0000001))
       cs-next
       (recur cs-next (f cs-next) (inc i)))))
+
+(defn settle1 [c f]
+  (loop [c c
+         c-next (f c)
+         i 0]
+    ;(print i '-)
+    (if (or (> i 1000) (< (c/mag (c/sub (:c c) (:c c-next))) 0.0001))
+      c-next
+      (recur c-next (f c-next) (inc i)))))
 
 (defn exclude [circles factor]
   (let [tree (kd/build-tree (map #(with-meta (to-v2 (:c %)) %) circles))]
     (cons
       (first circles)
       (map (fn [c] 
-              (let [c2 (meta (second (kd/nearest-neighbor tree (to-v2 (:c c)) 2)))]
-                (assoc c 
-                       :c (c/dist> (:c c) (:c c2)
-                                   (+ (:r c) (:r c2)) ; desired-dist
-                                   factor))))
+             (settle1 c 
+                      #(let [c2 (meta (second (kd/nearest-neighbor tree (to-v2 (:c %)) 2)))]
+                         (assoc % 
+                                :c (c/dist> (:c %) (:c c2)
+                                            (+ (:r %) (:r c2)) ; desired-dist
+                                            factor)))))
            (rest circles)))))
 
 (defn average-pull [p ps dist] "Sums the offsets of ps from p whos magnitude exceeds dist"
@@ -148,26 +158,6 @@
         res)
       {:x 0 :y 0})))
 
-(defn stick [circles factor] "Circles must stay a fixed distance from their :link"
-  (sort-by :id
-           (map 
-             (fn [c]
-               ;(if (empty? (:back-links c)) c
-               (let [cop (average-pull (:c c) (map (comp :c circles) ; center of pull == cop
-                                                   (if (:link c)
-                                                     (cons (:link c) (:back-links c))
-                                                     (:back-links c)))
-                                       (:link-dist c))]
-                 (if (< (c/mag cop) 1E-6)
-                   c
-                   ; FIXME it's fairly likely that the average of the pulling positions could
-                   ; be within range even if the other points aren't -> no movement
-                   (assoc c :c (c/dist< (:c c) (c/add (:c c) cop) (:link-dist c) factor)))))
-               ;)
-   ;          circles
-    (shuffle circles))
-   ))
-
 (defn limit-dist1 "Applies distance limit on first link that is too long"
   [c circles factor] 
   (if (nil? (:link c))
@@ -181,8 +171,8 @@
 
 (defn limit-dist [circles factor]
   (sort-by :id
-  (map (fn [c] (first (settle [c] #(list (limit-dist1 (first %) circles factor)))))
-       (shuffle circles))))
+           (map (fn [c] (settle1 c #(limit-dist1 % circles factor)))
+                (shuffle circles))))
 
 ;;;;;;;;;; Circle movement  ;;;;;;;;;;;;;;
 
@@ -195,7 +185,7 @@
     (cons (first circles)
           (map #(if (contains? leaves (:id %))
                   (assoc %
-                         :c (c/add (:c %) (c/mul (c/norm (:c %)) 25.0)))
+                         :c (c/add (:c %) (c/mul (c/norm (:c %)) 1.0)))
                   %)
                (rest circles)))))
 
@@ -247,7 +237,7 @@
   ; Set color mode to HSB (HSV) instead of default RGB.
   (q/color-mode :hsb)
   (println 'setup)
-  (let [circles (vec (add-back-links (aggregate 100)))]
+  (let [circles (vec (add-back-links (aggregate 50)))]
     ;(prntcs circles)
 ;    (println (count circles) (count circles-changed))
 ;    (println ((vec (concat circles circles-changed)) 1001) )
@@ -264,7 +254,11 @@
   (println (:frame state))
   (assoc state ;(expand-contract state)
          :circles (vec (settle (vec (pull-leaves (:circles state))) 
-                               #(limit-dist (vec %) 1.0)))
+                               #(-> % 
+                                    vec
+                                    (limit-dist 1.0)
+                                    (exclude 1.0)
+                                    vec)))
          :frame (inc (:frame state))
          :lit-layer (mod (inc (:lit-layer state)) (:max-layer state))))
              ;
