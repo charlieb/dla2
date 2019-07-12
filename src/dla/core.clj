@@ -15,7 +15,13 @@
 (defn to-v2 [p] [(:x p) (:y p)])
 
 ;;;;;;;;;; Circles ;;;;;;;;;;;;;;
-(defn mk-circle [x y r] {:c {:x x :y y} :r r :id 0 :link-dist 0})
+(defn mk-circle [x y r]
+  {:c {:x x :y y}
+   :r r
+   :id 0
+   :link-dist 0 
+   :stick? simple-stick?})
+
 (defn add-circle [c cs] 
   (let [id (+ 1 (max (map :id cs)))]
     (conj (assoc c :id id) cs)))
@@ -25,9 +31,6 @@
   (assoc (mk-circle 0 0 radius)
          :id 0
          :layer 0))
-
-(defn randomize-radii [circles]
-  (map (fn [c] (assoc c :r (q/random 2.5 10))) circles))
 
 (defn add-back-links [circles]
   (map (fn [c] 
@@ -41,12 +44,42 @@
 ;;;;;;;;;; KD-TREE Particle Approach ;;;;;;;;;;;;;;
 
 (defn simple-stick? [two-nears]
+  (and (> (q/random 0.0 1.0) 0.90)
+       (not
+         (and (= 2 (count two-nears))
+              (< (:dist-squared (first two-nears)) (Math/pow (* 2 (:r (meta (first two-nears)))) 2))
+              (< (:dist-squared (second two-nears)) (Math/pow (* 2 (:r (meta (second two-nears)))) 2))))
+
+       (< (:dist-squared (first two-nears)) (Math/pow (* 2 (:r (meta (first two-nears)))) 2))
+       ))
+
+(defn channel-stick? [two-nears]
   (and (not
          (and (= 2 (count two-nears))
               (< (:dist-squared (first two-nears)) (Math/pow (* 2 (:r (meta (first two-nears)))) 2))
               (< (:dist-squared (second two-nears)) (Math/pow (* 2 (:r (meta (second two-nears)))) 2))))
 
-       (< (:dist-squared (first two-nears)) (Math/pow (* 2 (:r (meta (first two-nears)))) 2))))
+       (< (:dist-squared (first two-nears)) (Math/pow (* 2 (:r (meta (first two-nears)))) 2))
+       (not (= channel-stick? (:stick? (meta (second two-nears)))))
+       ))
+
+(defn half-size-stick? [two-nears]
+  (and (not
+         (and (= 2 (count two-nears))
+              (< (:dist-squared (first two-nears)) (Math/pow (:r (meta (first two-nears)))  2))
+              (< (:dist-squared (second two-nears)) (Math/pow (:r (meta (second two-nears))) 2))))
+
+       (< (:dist-squared (first two-nears)) (Math/pow (:r (meta (first two-nears))) 2))
+       ))
+
+(defn touch-two-stick? [two-nears]
+  (and (= 2 (count two-nears))
+       (< (:dist-squared (first two-nears)) (Math/pow (* 2 (:r (meta (first two-nears)))) 2))
+       ;(> (:dist-squared (first two-nears)) (- (Math/pow (* 2 (:r (meta (first two-nears)))) 2) 25))
+
+       (< (:dist-squared (second two-nears)) (Math/pow (* 2 (:r (meta (second two-nears)))) 2))
+       ;(> (:dist-squared (second two-nears)) (- (Math/pow (* 2 (:r (meta (second two-nears)))) 2) 25))
+       ))
 
 (defn stick-particle [tree rand-range stick?]
   (let [sz rand-range -sz (- rand-range)
@@ -54,34 +87,38 @@
         h sz -h -sz] 
     (loop [p [(q/random -w w) (q/random -h h)]]
       (let [near (kd/nearest-neighbor tree p 2)]
-        (if (stick? near)
+        (if ((:stick? (meta (first near))) near)
           [p (first near)]
           (recur [(q/random -w w) (q/random -h h)]))))))
 
 (defn aggregate [nparts]
-  (first 
+  (second 
     (iterate-times nparts
-                   (fn [[cs tree rand-range]] 
+                   (fn [[i cs tree rand-range]] 
                      (let [[p hit] (stick-particle tree rand-range simple-stick?)
                            c (assoc (mk-circle (p 0) (p 1) radius) 
                                     :id (+ 1 (:id (last cs)))
                                     :link (:id (meta hit))
-                                    :layer (+ 1 (:layer (meta hit))))]
-                       [(conj cs c)
+                                    :layer (+ 1 (:layer (meta hit)))
+                                    :stick? (:stick? (meta hit)))]
+                       (print i " ")
+                       [(inc i)
+                        (conj cs c)
                         (kd/insert tree (with-meta (to-v2 (:c c)) c))
                         (cond (> (+ 10 (p 0)) rand-range) (+ 10 (p 0))
                               (> (+ 10 (p 1)) rand-range) (+ 10 (p 1))
                               :otherwise rand-range
                               )]))
                    (let [c0 (center)
-                         c1 (assoc c0 :c (c/add (:c c0) {:x    0 :y  150}) :id 1)
-                         c2 (assoc c0 :c (c/add (:c c0) {:x  150 :y    0}) :id 2)
+                         c1 (assoc c0 :c (c/add (:c c0) {:x    0 :y  15}) :id 1 :stick? channel-stick?)
+                         c2 (assoc c0 :c (c/add (:c c0) {:x  150 :y    0}) :id 2 :stick? half-size-stick?)
                          c3 (assoc c0 :c (c/add (:c c0) {:x    0 :y -150}) :id 3)
                          c4 (assoc c0 :c (c/add (:c c0) {:x -150 :y    0}) :id 4)
-                         cs [c0]]; c1 c2 c3 c4]]
-                     [cs
+                         cs [c0 c1]] ; c2 c3 c4]]
+                     [0
+                      cs
                       (kd/build-tree (vec (map #(with-meta (to-v2 (:c %)) %) cs)))
-                      10 ;initial area
+                      20 ;initial area
                       ]))))
 
 
@@ -92,7 +129,7 @@
   ; Set color mode to HSB (HSV) instead of default RGB.
   (q/color-mode :hsb)
   (println 'setup)
-  (let [circles (vec (add-back-links (aggregate 1000)))]
+  (let [circles (vec (add-back-links (aggregate 5000)))]
     ;(prntcs circles)
 ;    (println (count circles) (count circles-changed))
 ;    (println ((vec (concat circles circles-changed)) 1001) )
